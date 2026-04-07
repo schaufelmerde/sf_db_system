@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import './App.css'
 import { API_BASE } from './constants.js'
 import ShipsTab      from './components/ShipsTab.jsx'
@@ -16,18 +16,21 @@ function App() {
   const [error, setError]     = useState(null)
   const [activeTab, setActiveTab] = useState('orders')
   const [showTrain, setShowTrain] = useState(false)
+  const [wsConnected, setWsConnected] = useState(false)
+  const wsRef = useRef(null)
+  const reconnectTimer = useRef(null)
 
   const switchTab = (key) => setActiveTab(key)
 
-  const refreshData = async () => {
+  const refreshData = useCallback(async () => {
     const res = await fetch(`${API_BASE}/api/init-data`)
     if (res.ok) setData(await res.json())
-  }
+  }, [])
 
-  const refreshOrders = async () => {
+  const refreshOrders = useCallback(async () => {
     const res = await fetch(`${API_BASE}/api/orders`)
     if (res.ok) setOrders(await res.json())
-  }
+  }, [])
 
   useEffect(() => {
     Promise.all([
@@ -45,6 +48,44 @@ function App() {
       })
   }, [])
 
+  useEffect(() => {
+    const WS_URL = `ws://${window.location.host}/ws/orders`
+
+    const connect = () => {
+      const ws = new WebSocket(WS_URL)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        setWsConnected(true)
+        clearTimeout(reconnectTimer.current)
+      }
+
+      ws.onmessage = async (e) => {
+        try {
+          const event = JSON.parse(e.data)
+          if (['order_created', 'order_updated', 'order_deleted'].includes(event.event)) {
+            await refreshOrders()
+            await refreshData()
+          }
+        } catch {}
+      }
+
+      ws.onclose = () => {
+        setWsConnected(false)
+        reconnectTimer.current = setTimeout(connect, 3000)
+      }
+
+      ws.onerror = () => ws.close()
+    }
+
+    connect()
+
+    return () => {
+      clearTimeout(reconnectTimer.current)
+      wsRef.current?.close()
+    }
+  }, [refreshOrders, refreshData])
+
   const TABS = [
     { key: 'ships',     label: 'Ships',     value: data.ships.length },
     { key: 'parts',     label: 'Parts',     value: data.parts.length },
@@ -58,6 +99,9 @@ function App() {
       <header className="dashboard-header">
         <h1>SF Dashboard</h1>
         <span className="subtitle">Smart Factory Operations</span>
+        <span className={`ws-indicator ${wsConnected ? 'ws-connected' : 'ws-disconnected'}`}>
+          {wsConnected ? 'Live' : 'Reconnecting...'}
+        </span>
         <button
           className={`debug-menu-btn${activeTab === 'debugger' ? ' active' : ''}`}
           onClick={() => switchTab(activeTab === 'debugger' ? 'orders' : 'debugger')}

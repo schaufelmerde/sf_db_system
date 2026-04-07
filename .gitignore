@@ -32,6 +32,7 @@ cam_server/image_dataset/
 
 # Binary/generated files
 db_server/schema_overview.xlsx
+diagram_agent_instructions.md
 
 # Windows
 Thumbs.db

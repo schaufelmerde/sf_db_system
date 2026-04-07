@@ -42,6 +42,35 @@ body {
   letter-spacing: 0.04em;
 }
 
+.ws-indicator {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ws-indicator::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.ws-connected {
+  color: #4ade80;
+  background: #14532d30;
+}
+
+.ws-connected::before {
+  background: #4ade80;
+  box-shadow: 0 0 4px #4ade80;
+}
+
 .stats-bar {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -307,6 +336,7 @@ body {
 .status-badge.status-planning    { background: #1e293b;    color: #94a3b8; }
 .status-badge.status-building    { background: #1e3a5f;    color: #60a5fa; }
 .status-badge.status-launched    { background: #2d1f5e;    color: #a78bfa; }
+.status-badge.status-finished    { background: #052e1640;  color: #86efac; }
 
 /* ── Orders table ────────────────────────────────────── */
 
@@ -543,6 +573,109 @@ button[type='submit']:hover:not(:disabled) {
 button[type='submit']:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ── Generate random orders ──────────────────────────── */
+
+.gen-panel h2 {
+  color: #475569;
+}
+
+.gen-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  user-select: none;
+}
+
+.gen-checkbox {
+  width: auto;
+  accent-color: #818cf8;
+  cursor: pointer;
+}
+
+.gen-stream-row {
+  justify-content: flex-end;
+}
+
+.gen-stream-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  user-select: none;
+  padding: 8px 10px;
+  background: #0f1117;
+  border: 1px solid #2d3148;
+  border-radius: 6px;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.gen-stream-label:has(.gen-checkbox:checked) {
+  border-color: #4f46e5;
+  color: #a5b4fc;
+}
+
+.gen-stream-label:has(.gen-checkbox:disabled) {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-generate {
+  background: #1e1b4b;
+  color: #a5b4fc;
+  border: 1px solid #4f46e5;
+  border-radius: 6px;
+  padding: 9px 22px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  white-space: nowrap;
+}
+
+.btn-generate:hover:not(:disabled) {
+  background: #2e2a6e;
+  color: #c4b5fd;
+}
+
+.btn-generate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-danger {
+  background: #450a0a;
+  color: #f87171;
+  border: 1px solid #991b1b;
+  border-radius: 6px;
+  padding: 9px 22px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.btn-danger:hover {
+  background: #5f1010;
+}
+
+.gen-progress {
+  background: #1e1b4b;
+  color: #a5b4fc;
+  border: 1px solid #3730a3;
 }
 
 /* ── Modal ───────────────────────────────────────────── */

@@ -7,10 +7,28 @@ from flask import Flask, Response, request
 
 os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"  # Force DirectShow, MSMF broken on new opencv
 
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+log = logging.getLogger(__name__)
+
 app = Flask(__name__)
-camera = cv2.VideoCapture(0, cv2.CAP_DSHOW)
 camera_lock = threading.Lock()
 camera_active = True
+
+def _open_camera():
+    for index in range(4):
+        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+        if cap.isOpened():
+            ok, _ = cap.read()
+            if ok:
+                log.info(f"Camera opened on index {index}")
+                return cap
+            cap.release()
+        log.warning(f"Camera index {index} not available")
+    log.error("No camera found on indices 0-3")
+    return None
+
+camera = _open_camera()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -55,24 +73,57 @@ def monitor():
     <html>
       <head>
         <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <style>
+          body { margin:0; background:#000; overflow:hidden; font-family:monospace; }
+          #overlay {
+            display:none; position:absolute; inset:0;
+            align-items:center; justify-content:center; flex-direction:column;
+            color:#f87171; font-size:14px; gap:8px;
+          }
+          #overlay.visible { display:flex; }
+          #dot { width:8px; height:8px; border-radius:50%; background:#4ade80;
+                 position:absolute; top:10px; right:10px; }
+          #dot.error { background:#f87171; }
+        </style>
         <script>
+          var failCount = 0;
           function updateImage() {
             var img = document.getElementById('cameraGui');
+            var overlay = document.getElementById('overlay');
+            var dot = document.getElementById('dot');
             var newImg = new Image();
             newImg.onload = function() {
                 img.src = this.src;
+                overlay.classList.remove('visible');
+                dot.classList.remove('error');
+                failCount = 0;
                 setTimeout(updateImage, 30);
             };
             newImg.onerror = function() {
-                setTimeout(updateImage, 100);
+                failCount++;
+                if (failCount > 5) {
+                    overlay.classList.add('visible');
+                    dot.classList.add('error');
+                    fetch('/api/camera/status').then(r=>r.json()).then(d=>{
+                        document.getElementById('errmsg').textContent =
+                            d.error || (d.active ? 'Camera read failed' : 'Camera is off');
+                    }).catch(()=>{});
+                }
+                setTimeout(updateImage, 500);
             };
             newImg.src = "/single_frame?t=" + new Date().getTime();
           }
           window.onload = updateImage;
         </script>
       </head>
-      <body style="margin:0; background-color:black; overflow:hidden;">
-        <img id="cameraGui" style="width:100%; height:100%; object-fit:contain;">
+      <body>
+        <div id="dot"></div>
+        <img id="cameraGui" style="width:100%;height:100%;object-fit:contain;">
+        <div id="overlay">
+          <span style="font-size:32px;">&#9888;</span>
+          <span id="errmsg">No camera signal</span>
+          <span style="color:#64748b;font-size:11px;">Check camera connection and restart the server</span>
+        </div>
       </body>
     </html>
     """
@@ -86,16 +137,21 @@ def camera_toggle():
 
 @app.route('/api/camera/status')
 def camera_status():
-    return Response(json.dumps({"active": camera_active}), mimetype='application/json')
+    payload = {"active": camera_active, "available": camera is not None}
+    if camera is None:
+        payload["error"] = "No camera found on indices 0-3"
+    return Response(json.dumps(payload), mimetype='application/json')
 
 @app.route('/single_frame')
 def single_frame():
     if not camera_active:
         return Response(json.dumps({"error": "camera off"}), status=503, mimetype='application/json')
+    if camera is None:
+        return Response(json.dumps({"error": "no camera"}), status=503, mimetype='application/json')
     with camera_lock:
         success, frame = camera.read()
     if not success:
-        return "Error", 500
+        return Response(json.dumps({"error": "camera read failed"}), status=500, mimetype='application/json')
     # Mirror classifier.py preprocessing exactly
     frame = cv2.flip(frame, 1)
     h, w = frame.shape[:2]
@@ -118,10 +174,12 @@ def raw_frame():
     Used by classifier.py so it can apply its own preprocessing without double-processing."""
     if not camera_active:
         return Response(json.dumps({"error": "camera off"}), status=503, mimetype='application/json')
+    if camera is None:
+        return Response(json.dumps({"error": "no camera"}), status=503, mimetype='application/json')
     with camera_lock:
         success, frame = camera.read()
     if not success:
-        return "Error", 500
+        return Response(json.dumps({"error": "camera read failed"}), status=500, mimetype='application/json')
     frame = cv2.flip(frame, 1)
     h, w = frame.shape[:2]
     size = min(h, w)
@@ -171,6 +229,8 @@ def api_classify():
 
     if not camera_active:
         return Response(json.dumps({"error": "camera off"}), status=503, mimetype='application/json')
+    if camera is None:
+        return Response(json.dumps({"error": "no camera"}), status=503, mimetype='application/json')
     with camera_lock:
         success, frame = camera.read()
     if not success:
@@ -209,7 +269,7 @@ def _gen_mjpeg():
     """Yield MJPEG frames for a continuous video stream."""
     import time
     while True:
-        if not camera_active:
+        if not camera_active or camera is None:
             time.sleep(0.1)
             continue
         with camera_lock:

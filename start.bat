@@ -28,21 +28,23 @@ if %errorlevel% neq 0 (
 )
 echo [DB] MySQL81 is running.
 
-echo [DB] Starting API server...
-start "SF API" cmd /k "cd /d "%DB%" && "%DB_VENV%\uvicorn.exe" main:app --reload --host 0.0.0.0 --port 8000"
+echo Launching service windows...
 
-echo [DB] Starting PLC order controller...
-start "SF PLC Controller" cmd /k "cd /d "%DB%" && "%DB_VENV%\python.exe" plc_order_controller.py"
-
-echo [DB] Starting dashboard...
-start "SF Dashboard" cmd /k "cd /d "%DASHBOARD%" && npm run dev"
-
-echo [CAM] Starting cam server...
-start "SF CAM" cmd /k "cd /d "%CAM%" && call venv\Scripts\activate.bat && python class_cam.py"
+wt --maximized ^
+    new-tab --title "SF API" cmd /k "cd /d "%DB%" && "%DB_VENV%\uvicorn.exe" main:app --reload --host 0.0.0.0 --port 8000" ^
+    ; split-pane --vertical --title "SF PLC Controller" cmd /k "cd /d "%DB%" && "%DB_VENV%\python.exe" plc_order_controller.py" ^
+    ; move-focus left ^
+    ; split-pane --horizontal --size 0.3 --title "SF CAM" cmd /k "cd /d "%CAM%" && call venv\Scripts\activate.bat && python class_cam.py" ^
+    ; split-pane --horizontal --size 0.5 --title "SF Dashboard" cmd /k "cd /d "%DASHBOARD%" && npm run dev"
 
 echo.
-echo Waiting for services to start...
-timeout /t 5 /nobreak >nul
+echo Waiting for API to be ready...
+:wait_api
+curl -s http://localhost:8000/api/init-data >nul 2>&1
+if %errorlevel% neq 0 (
+    timeout /t 2 /nobreak >nul
+    goto wait_api
+)
 start "" http://localhost:5173/
 
 echo.

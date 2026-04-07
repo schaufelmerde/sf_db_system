@@ -18,7 +18,7 @@ SCHEMA = {
             ship_type       VARCHAR(50),
             total_parts_req INT             DEFAULT 0,
             parts_completed INT             DEFAULT 0,
-            status          ENUM('PLANNING','BUILDING','LAUNCHED','COMPLETE') DEFAULT 'BUILDING',
+            status          ENUM('PLANNING','BUILDING','LAUNCHED','COMPLETE','FINISHED') DEFAULT 'PLANNING',
             start_date      DATE,
             target_date     DATE,
             INDEX idx_status (status)

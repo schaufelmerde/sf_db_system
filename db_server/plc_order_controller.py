@@ -4,7 +4,7 @@ PLC Order Controller
 Event-driven order queue manager for the PLC buffer.
 
 DB change events are pushed by the FastAPI middleware over WebSocket.
-B351 and B701 are hardware signals polled on a fixed interval.
+B710 and B701 are hardware signals polled on a fixed interval.
 
 Buffer layout (Mitsubishi MELSEC — MC Protocol):
   D0 / D1     → Slot 0: current IN_PROGRESS order (low word / high word)
@@ -12,7 +12,7 @@ Buffer layout (Mitsubishi MELSEC — MC Protocol):
   D100 / D101 → IN_PROGRESS part IDs
   D200 / D201 → QUEUED part IDs
 
-  B351        → Shift trigger: promote QUEUED → IN_PROGRESS, shift part IDs
+  B710        → Shift trigger: promote QUEUED → IN_PROGRESS, shift part IDs
   B701        → Completion trigger: mark IN_PROGRESS order as COMPLETE
   D1000/D1001 → Completed order ID written back by PLC (low / high word)
 
@@ -48,6 +48,21 @@ DB_CONFIG = {
     'use_pure': True,
 }
 
+DB_CONFIG_INV = {
+    'host':     'localhost',
+    'user':     'root',
+    'password': '1234',
+    'database': 'sf_inventory',
+    'use_pure': True,
+}
+
+_ORDER_TO_SHIP_STATUS = {
+    'IN_PROGRESS': 'BUILDING',
+    'COMPLETE':    'FINISHED',
+    'PENDING':     'PLANNING',
+    'QUEUED':      'PLANNING',
+}
+
 PLC_HOST    = '192.168.3.110'
 PLC_PORT    = 1026
 WS_URI      = 'ws://localhost:8000/ws/orders'
@@ -64,7 +79,7 @@ REG_PART2      = 101  # D101
 REG_PART1_Q    = 200  # D200  — QUEUED part ids
 REG_PART2_Q    = 201  # D201
 BIT_COMPLETE   = 0x701
-BIT_SHIFT      = 0x351  # B351 — PLC signals: promote queued → in-progress
+BIT_SHIFT      = 0x710  # B710 — PLC signals: promote queued → in-progress
 
 # ── Shared state ──────────────────────────────────────────────────────────────
 
@@ -129,14 +144,29 @@ def fetch_part_ids(order_id: str) -> tuple[int, int]:
         conn.close()
 
 def set_status(order_id: str, status: str):
+    ship_id = None
     conn = get_db()
     cur = conn.cursor()
     try:
         cur.execute("UPDATE orders SET status=%s WHERE order_id=%s", (status, order_id))
+        cur.execute("SELECT ship_id FROM orders WHERE order_id=%s", (order_id,))
+        row = cur.fetchone()
+        ship_id = row[0] if row else None
         conn.commit()
         log.info(f'Order {order_id} → {status}')
     finally:
         conn.close()
+
+    ship_status = _ORDER_TO_SHIP_STATUS.get(status)
+    if ship_id and ship_status:
+        inv_conn = mysql.connector.connect(**DB_CONFIG_INV)
+        inv_cur = inv_conn.cursor()
+        try:
+            inv_cur.execute("UPDATE ships SET status=%s WHERE ship_id=%s", (ship_status, ship_id))
+            inv_conn.commit()
+            log.info(f'Ship {ship_id} → {ship_status}')
+        finally:
+            inv_conn.close()
 
 # ── PLC ───────────────────────────────────────────────────────────────────────
 
@@ -186,13 +216,13 @@ def reset_b701():
     plc.batchwrite_bitunits(headdevice=f'B{BIT_COMPLETE:X}', values=[0])
     log.info('B701 reset')
 
-def read_b351() -> bool:
+def read_b710() -> bool:
     bits = plc.batchread_bitunits(headdevice=f'B{BIT_SHIFT:X}', readsize=1)
     return bits[0] == 1
 
-def reset_b351():
+def reset_b710():
     plc.batchwrite_bitunits(headdevice=f'B{BIT_SHIFT:X}', values=[0])
-    log.info('B351 reset')
+    log.info('B710 reset')
 
 def read_confirmed_order() -> str:
     words = plc.batchread_wordunits(headdevice=f'D{REG_CONFIRM_L}', readsize=2)
@@ -221,13 +251,13 @@ def fill_slots():
             clear_queued_part_ids()
 
 def handle_shift():
-    """B351 — promote queued order to in-progress slot, shift part IDs D200/D201 → D100/D101."""
+    """B710 — promote queued order to in-progress slot, shift part IDs D200/D201 → D100/D101."""
     if not slot[1]:
-        log.warning('B351 triggered but no queued order in slot 1 — ignoring')
+        log.warning('B710 triggered but no queued order in slot 1 — ignoring')
         return
 
     if slot[0]:
-        log.warning(f'B351 fired but slot[0] ({slot[0]}) not yet completed — marking COMPLETE')
+        log.warning(f'B710 fired but slot[0] ({slot[0]}) not yet completed — marking COMPLETE')
         set_status(slot[0], 'COMPLETE')
         clear_slot(0)
 
@@ -237,7 +267,7 @@ def handle_shift():
     set_status(slot[0], 'IN_PROGRESS')
     write_part_ids(slot[0])       # D100/D101 ← promoted order's parts
     clear_queued_part_ids()       # D200/D201 cleared until fill_slots loads next
-    log.info(f'Slot promoted on B351: {slot[0]}')
+    log.info(f'Slot promoted on B710: {slot[0]}')
 
     fill_slots()                  # loads next QUEUED order into slot[1] + D200/D201
 
@@ -276,7 +306,7 @@ def handle_deletion(order_id: str):
 # ── Coroutines ────────────────────────────────────────────────────────────────
 
 async def plc_poller():
-    """Polls B351 and B701 every POLL_SEC. Reconnects on PLC timeout/error."""
+    """Polls B710 and B701 every POLL_SEC. Reconnects on PLC timeout/error."""
     global plc
     while True:
         try:
@@ -286,10 +316,10 @@ async def plc_poller():
                 handle_completion(confirmed)
                 reset_b701()
 
-            if read_b351():
-                log.info('B351 triggered — shifting queued → in-progress')
+            if read_b710():
+                log.info('B710 triggered — shifting queued → in-progress')
                 handle_shift()
-                reset_b351()
+                reset_b710()
         except (TimeoutError, OSError) as e:
             log.warning(f'PLC error ({e}) — reconnecting...')
             plc = await asyncio.get_event_loop().run_in_executor(None, connect_plc)

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { SHIP_TYPES } from '../constants.js'
 
 const API_BASE = ''
@@ -13,6 +13,18 @@ export default function OrdersTab({ orders, parts, customers, onRefreshOrders, o
   })
   const [submitStatus, setSubmitStatus] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Random order generation
+  const [showGenerator, setShowGenerator] = useState(false)
+  const [genCount, setGenCount] = useState(5)
+  const [genFrequency, setGenFrequency] = useState(3)
+  const [streaming, setStreaming] = useState(false)
+  const [genStatus, setGenStatus] = useState(null)
+  const [genRunning, setGenRunning] = useState(false)
+  const [genProgress, setGenProgress] = useState(0)
+  const streamRef = useRef(null)
+  const progressRef = useRef(0)
+  const totalRef = useRef(0)
 
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [editingOrder, setEditingOrder] = useState(null)
@@ -32,6 +44,71 @@ export default function OrdersTab({ orders, parts, customers, onRefreshOrders, o
   const [expandedOrder, setExpandedOrder] = useState(null)
   const [snapshotHistory, setSnapshotHistory] = useState({})
   const [snapshotLoading, setSnapshotLoading] = useState(false)
+
+  const stopStream = () => {
+    if (streamRef.current) {
+      clearInterval(streamRef.current)
+      streamRef.current = null
+    }
+    setGenRunning(false)
+  }
+
+  const generateOne = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/orders/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: 1 }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.detail || `HTTP ${res.status}`)
+      progressRef.current += 1
+      setGenProgress(progressRef.current)
+      setGenStatus({ type: 'success', message: `Created ${progressRef.current} / ${totalRef.current}` })
+      await onRefreshOrders()
+      await onRefreshData()
+      if (progressRef.current >= totalRef.current) {
+        stopStream()
+        setGenStatus({ type: 'success', message: `Done — created ${progressRef.current} orders` })
+      }
+    } catch (err) {
+      stopStream()
+      setGenStatus({ type: 'error', message: err.message })
+    }
+  }
+
+  const handleGenerate = async () => {
+    setGenStatus(null)
+    setGenProgress(0)
+    progressRef.current = 0
+    totalRef.current = genCount
+
+    if (streaming) {
+      setGenRunning(true)
+      await generateOne()
+      if (progressRef.current < totalRef.current) {
+        streamRef.current = setInterval(generateOne, genFrequency * 1000)
+      }
+    } else {
+      setGenRunning(true)
+      try {
+        const res = await fetch(`${API_BASE}/api/orders/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ count: genCount }),
+        })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.detail || `HTTP ${res.status}`)
+        setGenStatus({ type: 'success', message: json.message })
+        await onRefreshOrders()
+        await onRefreshData()
+      } catch (err) {
+        setGenStatus({ type: 'error', message: err.message })
+      } finally {
+        setGenRunning(false)
+      }
+    }
+  }
 
   const handleChange = e => {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
@@ -276,6 +353,15 @@ export default function OrdersTab({ orders, parts, customers, onRefreshOrders, o
               <button type="submit" disabled={submitting}>
                 {submitting ? 'Submitting...' : 'Submit Order'}
               </button>
+              <label className="gen-toggle-label">
+                <input
+                  type="checkbox"
+                  className="gen-checkbox"
+                  checked={showGenerator}
+                  onChange={e => setShowGenerator(e.target.checked)}
+                />
+                Generate Random
+              </label>
               {submitStatus && (
                 <p className={`status-msg ${submitStatus.type}`}>{submitStatus.message}</p>
               )}
@@ -283,6 +369,62 @@ export default function OrdersTab({ orders, parts, customers, onRefreshOrders, o
           </div>
         </form>
       </div>
+
+      {showGenerator && (
+        <div className="panel order-form-panel gen-panel">
+          <h2>Generate Random Orders</h2>
+          <div className="order-form-grid">
+            <div className="form-row">
+              <label>Number of Orders</label>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={genCount}
+                onChange={e => setGenCount(Math.max(1, parseInt(e.target.value) || 1))}
+                disabled={genRunning}
+              />
+            </div>
+            <div className="form-row">
+              <label>Frequency (seconds)</label>
+              <input
+                type="number"
+                min="1"
+                max="3600"
+                value={genFrequency}
+                onChange={e => setGenFrequency(Math.max(1, parseInt(e.target.value) || 1))}
+                disabled={!streaming || genRunning}
+              />
+            </div>
+            <div className="form-row gen-stream-row">
+              <label className="gen-stream-label">
+                <input
+                  type="checkbox"
+                  className="gen-checkbox"
+                  checked={streaming}
+                  onChange={e => setStreaming(e.target.checked)}
+                  disabled={genRunning}
+                />
+                Stream orders one by one
+              </label>
+            </div>
+            <div className="form-submit-row">
+              {genRunning && streaming
+                ? <button className="btn-danger" onClick={stopStream}>Stop</button>
+                : <button className="btn-generate" onClick={handleGenerate} disabled={genRunning}>
+                    {genRunning ? 'Generating...' : 'Generate Orders'}
+                  </button>
+              }
+              {genRunning && streaming && (
+                <span className="status-msg gen-progress">{genProgress} / {genCount} created</span>
+              )}
+              {genStatus && !genRunning && (
+                <p className={`status-msg ${genStatus.type}`}>{genStatus.message}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="panel orders-panel">
         <h2>Active Orders ({activeOrders.length})</h2>

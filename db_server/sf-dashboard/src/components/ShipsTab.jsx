@@ -9,16 +9,19 @@ export default function ShipsTab({ ships, onRefresh }) {
   const [form, setForm] = useState({
     ship_name: '',
     ship_type: '',
-    status: 'BUILDING',
+    status: 'PLANNING',
     start_date: '',
     target_date: '',
   })
   const [status, setStatus] = useState(null)
   const [submitting, setSubmitting] = useState(false)
 
+  const [selected, setSelected] = useState(new Set())
+  const [batchStatus, setBatchStatus] = useState(null)
+
   const openAdd = () => {
     setEditingShip(null)
-    setForm({ ship_name: '', ship_type: '', status: 'BUILDING', start_date: '', target_date: '' })
+    setForm({ ship_name: '', ship_type: '', status: 'PLANNING', start_date: '', target_date: '' })
     setStatus(null)
     setShowModal(true)
   }
@@ -28,7 +31,7 @@ export default function ShipsTab({ ships, onRefresh }) {
     setForm({
       ship_name: s.ship_name ?? '',
       ship_type: s.ship_type ?? '',
-      status: s.status ?? 'BUILDING',
+      status: s.status ?? 'PLANNING',
       start_date: s.start_date ? s.start_date.split('T')[0] : '',
       target_date: s.target_date ? s.target_date.split('T')[0] : '',
     })
@@ -57,7 +60,7 @@ export default function ShipsTab({ ships, onRefresh }) {
       const json = await res.json()
       if (!res.ok) throw new Error(json.detail || `HTTP ${res.status}`)
       setStatus({ type: 'success', message: json.message })
-      if (!isEdit) setForm({ ship_name: '', ship_type: '', status: 'BUILDING', start_date: '', target_date: '' })
+      if (!isEdit) setForm({ ship_name: '', ship_type: '', status: 'PLANNING', start_date: '', target_date: '' })
       await onRefresh()
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
@@ -72,9 +75,44 @@ export default function ShipsTab({ ships, onRefresh }) {
       const res = await fetch(`${API_BASE}/api/ships/${ship_id}`, { method: 'DELETE' })
       const json = await res.json()
       if (!res.ok) throw new Error(json.detail || `HTTP ${res.status}`)
+      setSelected(prev => { const next = new Set(prev); next.delete(ship_id); return next })
       await onRefresh()
     } catch (err) {
       alert(err.message)
+    }
+  }
+
+  const toggleSelect = (id) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    setSelected(prev =>
+      prev.size === ships.length ? new Set() : new Set(ships.map(s => s.ship_id))
+    )
+  }
+
+  const handleBatchDelete = async () => {
+    if (selected.size === 0) return
+    if (!window.confirm(`Delete ${selected.size} ship(s)?`)) return
+    setBatchStatus(null)
+    try {
+      const res = await fetch(`${API_BASE}/api/ships/batch-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ship_ids: [...selected] }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.detail || `HTTP ${res.status}`)
+      setSelected(new Set())
+      setBatchStatus({ type: 'success', message: json.message })
+      await onRefresh()
+    } catch (err) {
+      setBatchStatus({ type: 'error', message: err.message })
     }
   }
 
@@ -84,9 +122,33 @@ export default function ShipsTab({ ships, onRefresh }) {
         <h2>Ships ({ships.length})</h2>
         <button className="btn-register" onClick={openAdd}>+ Add Ship</button>
       </div>
+
+      {selected.size > 0 && (
+        <div className="batch-toolbar">
+          <span className="batch-toolbar-count">{selected.size} selected</span>
+          <button className="btn-delete" style={{ opacity: 1 }} onClick={handleBatchDelete}>Delete Selected</button>
+          {batchStatus && <span className={`status-msg ${batchStatus.type}`}>{batchStatus.message}</span>}
+        </div>
+      )}
+
       <ul>
+        <li style={{ borderBottom: '1px solid #2d3148', paddingBottom: 6, marginBottom: 2 }}>
+          <input
+            type="checkbox"
+            className="gen-checkbox"
+            checked={ships.length > 0 && selected.size === ships.length}
+            onChange={toggleSelectAll}
+          />
+          <span className="item-meta" style={{ flex: 1 }}>Select all</span>
+        </li>
         {ships.map(s => (
           <li key={s.ship_id}>
+            <input
+              type="checkbox"
+              className="gen-checkbox"
+              checked={selected.has(s.ship_id)}
+              onChange={() => toggleSelect(s.ship_id)}
+            />
             <span className="id">{s.ship_id}</span>
             <span className="item-name">{s.ship_name}</span>
             <span className={`status-badge status-${s.status?.toLowerCase()}`}>{s.status}</span>
@@ -130,6 +192,7 @@ export default function ShipsTab({ ships, onRefresh }) {
                   <option value="BUILDING">BUILDING</option>
                   <option value="LAUNCHED">LAUNCHED</option>
                   <option value="COMPLETE">COMPLETE</option>
+                  <option value="FINISHED">FINISHED</option>
                 </select>
               </div>
               <div className="form-row">
