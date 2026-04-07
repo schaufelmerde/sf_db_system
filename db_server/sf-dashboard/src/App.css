@@ -1453,3 +1453,84 @@ button[type='submit']:disabled {
   color: #334155;
   text-align: center;
 }
+
+/* Settings tab */
+.debugger-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 4px 0;
+}
+
+.debugger-settings-group {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.debugger-settings-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin: 0 0 2px;
+  letter-spacing: 0.03em;
+}
+
+.debugger-settings-desc {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.debugger-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.debugger-settings-input-wrap {
+  display: flex;
+  align-items: center;
+  background: #0f1117;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.debugger-settings-prefix,
+.debugger-settings-suffix {
+  padding: 0 8px;
+  font-size: 12px;
+  color: #475569;
+  background: #1e293b;
+  white-space: nowrap;
+  line-height: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+.debugger-settings-input-wrap input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e2e8f0;
+  font-size: 13px;
+  padding: 0 8px;
+  height: 32px;
+  font-family: monospace;
+  min-width: 0;
+}
+
+.debugger-settings-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

@@ -71,8 +71,20 @@ def run_migrations():
             cursor.execute(ddl)
             conn.commit()
         except Exception:
-            pass  # column already exists
+            pass
     conn.close()
+
+    inv_conn = get_db("inventory")
+    inv_cur = inv_conn.cursor()
+    for ddl in [
+        "ALTER TABLE ships MODIFY COLUMN status ENUM('PLANNING','BUILDING','LAUNCHED','COMPLETE','FINISHED') DEFAULT 'PLANNING'",
+    ]:
+        try:
+            inv_cur.execute(ddl)
+            inv_conn.commit()
+        except Exception:
+            pass
+    inv_conn.close()
 
 # --- API ENDPOINTS ---
 
@@ -162,23 +174,72 @@ def update_ship(ship_id: str, data: dict):
     finally:
         conn.close()
 
+@app.post("/api/ships/batch-delete")
+def batch_delete_ships(data: dict):
+    ship_ids = data.get("ship_ids", [])
+    if not ship_ids:
+        raise HTTPException(status_code=400, detail="No ship IDs provided")
+    ph = ",".join(["%s"] * len(ship_ids))
+    inv_conn = get_db("inventory")
+    inv_cur = inv_conn.cursor()
+    try:
+        inv_cur.execute(f"DELETE FROM ships WHERE ship_id IN ({ph})", ship_ids)
+        deleted = inv_cur.rowcount
+        inv_conn.commit()
+    except Exception as e:
+        inv_conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        inv_conn.close()
+    order_conn = get_db("order")
+    order_cur = order_conn.cursor()
+    try:
+        order_cur.execute(f"SELECT order_id FROM orders WHERE ship_id IN ({ph})", ship_ids)
+        order_ids = [r[0] for r in order_cur.fetchall()]
+        if order_ids:
+            oph = ",".join(["%s"] * len(order_ids))
+            order_cur.execute(f"DELETE FROM order_items WHERE order_id IN ({oph})", order_ids)
+            order_cur.execute(f"DELETE FROM orders WHERE ship_id IN ({ph})", ship_ids)
+            order_conn.commit()
+    except Exception as e:
+        order_conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        order_conn.close()
+    return {"message": f"Deleted {deleted} ship(s)"}
+
 @app.delete("/api/ships/{ship_id}")
 def delete_ship(ship_id: str):
-    conn = get_db("inventory")
-    cursor = conn.cursor()
+    inv_conn = get_db("inventory")
+    inv_cur = inv_conn.cursor()
     try:
-        cursor.execute("DELETE FROM ships WHERE ship_id=%s", (ship_id,))
-        if cursor.rowcount == 0:
+        inv_cur.execute("DELETE FROM ships WHERE ship_id=%s", (ship_id,))
+        if inv_cur.rowcount == 0:
             raise HTTPException(status_code=404, detail="Ship not found")
-        conn.commit()
-        return {"message": "Ship deleted successfully"}
+        inv_conn.commit()
     except HTTPException:
         raise
     except Exception as e:
-        conn.rollback()
+        inv_conn.rollback()
         raise HTTPException(status_code=400, detail=str(e))
     finally:
-        conn.close()
+        inv_conn.close()
+    order_conn = get_db("order")
+    order_cur = order_conn.cursor()
+    try:
+        order_cur.execute("SELECT order_id FROM orders WHERE ship_id=%s", (ship_id,))
+        order_ids = [r[0] for r in order_cur.fetchall()]
+        if order_ids:
+            ph = ",".join(["%s"] * len(order_ids))
+            order_cur.execute(f"DELETE FROM order_items WHERE order_id IN ({ph})", order_ids)
+            order_cur.execute("DELETE FROM orders WHERE ship_id=%s", (ship_id,))
+            order_conn.commit()
+    except Exception as e:
+        order_conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        order_conn.close()
+    return {"message": "Ship deleted successfully"}
 
 @app.post("/api/customers")
 def create_customer(data: dict):
@@ -322,11 +383,19 @@ def delete_customer(customer_id: str):
     conn = get_db("order")
     cursor = conn.cursor()
     try:
-        cursor.execute("DELETE FROM customers WHERE customer_id=%s", (customer_id,))
-        if cursor.rowcount == 0:
+        cursor.execute("SELECT 1 FROM customers WHERE customer_id=%s", (customer_id,))
+        if not cursor.fetchone():
             raise HTTPException(status_code=404, detail="Customer not found")
+        cursor.execute("SELECT order_id, ship_id FROM orders WHERE customer_id=%s", (customer_id,))
+        rows = cursor.fetchall()
+        order_ids = [r[0] for r in rows]
+        ship_ids  = [r[1] for r in rows if r[1]]
+        if order_ids:
+            ph = ",".join(["%s"] * len(order_ids))
+            cursor.execute(f"DELETE FROM order_items WHERE order_id IN ({ph})", order_ids)
+            cursor.execute("DELETE FROM orders WHERE customer_id=%s", (customer_id,))
+        cursor.execute("DELETE FROM customers WHERE customer_id=%s", (customer_id,))
         conn.commit()
-        return {"message": "Customer deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
@@ -334,6 +403,16 @@ def delete_customer(customer_id: str):
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         conn.close()
+    if ship_ids:
+        inv_conn = get_db("inventory")
+        inv_cur = inv_conn.cursor()
+        try:
+            ph = ",".join(["%s"] * len(ship_ids))
+            inv_cur.execute(f"DELETE FROM ships WHERE ship_id IN ({ph})", ship_ids)
+            inv_conn.commit()
+        finally:
+            inv_conn.close()
+    return {"message": "Customer deleted successfully"}
 
 @app.delete("/api/parts/{part_id}")
 def delete_part(part_id: str):
@@ -414,14 +493,25 @@ def get_order_snapshots(order_id: str):
     finally:
         conn.close()
 
+_ORDER_TO_SHIP_STATUS = {
+    'IN_PROGRESS': 'BUILDING',
+    'COMPLETE':    'FINISHED',
+    'PENDING':     'PLANNING',
+    'QUEUED':      'PLANNING',
+    'ON_HOLD':     'PLANNING',
+    'CANCELLED':   'PLANNING',
+}
+
 @app.put("/api/orders/{order_id}")
 def update_order(order_id: str, data: dict):
     conn = get_db("order")
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT 1 FROM orders WHERE order_id=%s", (order_id,))
-        if not cursor.fetchone():
+        cursor.execute("SELECT ship_id FROM orders WHERE order_id=%s", (order_id,))
+        row = cursor.fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Order not found")
+        ship_id = row[0]
         cursor.execute("""
             UPDATE orders
             SET status=%s, priority=%s, due_date=%s, notes=%s, ship_type=%s
@@ -441,6 +531,16 @@ def update_order(order_id: str, data: dict):
                 WHERE item_id=%s
             """, (data['part1_id'], data['part2_id'], data['item_id']))
         conn.commit()
+        new_status = data.get('status')
+        ship_status = _ORDER_TO_SHIP_STATUS.get(new_status)
+        if ship_id and ship_status:
+            inv_conn = get_db("inventory")
+            inv_cur = inv_conn.cursor()
+            try:
+                inv_cur.execute("UPDATE ships SET status=%s WHERE ship_id=%s", (ship_status, ship_id))
+                inv_conn.commit()
+            finally:
+                inv_conn.close()
         return {"message": "Order updated successfully"}
     except HTTPException:
         raise
@@ -455,12 +555,14 @@ def delete_order(order_id: str):
     conn = get_db("order")
     cursor = conn.cursor()
     try:
+        cursor.execute("SELECT ship_id FROM orders WHERE order_id=%s", (order_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Order not found")
+        ship_id = row[0]
         cursor.execute("DELETE FROM order_items WHERE order_id=%s", (order_id,))
         cursor.execute("DELETE FROM orders WHERE order_id=%s", (order_id,))
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Order not found")
         conn.commit()
-        return {"message": "Order deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
@@ -468,6 +570,75 @@ def delete_order(order_id: str):
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         conn.close()
+    if ship_id:
+        inv_conn = get_db("inventory")
+        inv_cur = inv_conn.cursor()
+        try:
+            inv_cur.execute("DELETE FROM ships WHERE ship_id=%s", (ship_id,))
+            inv_conn.commit()
+        finally:
+            inv_conn.close()
+    return {"message": "Order deleted successfully"}
+
+@app.post("/api/orders/generate")
+def generate_random_orders(data: dict):
+    import random
+    from datetime import date, timedelta
+    count = max(1, min(int(data.get('count', 1)), 100))
+    SHIP_TYPES = [
+        'Bulk Carrier', 'Container Ship', 'Tanker', 'LNG Carrier',
+        'Naval Vessel', 'Offshore Platform', 'Ferry', 'Other',
+    ]
+    order_conn = get_db("order")
+    inv_conn = get_db("inventory")
+    order_cur = order_conn.cursor()
+    inv_cur = inv_conn.cursor()
+    try:
+        order_cur.execute("SELECT customer_id FROM customers")
+        customers = [r[0] for r in order_cur.fetchall()]
+        if not customers:
+            raise HTTPException(status_code=400, detail="No customers in database")
+        inv_cur.execute("SELECT part_id FROM parts")
+        parts = [r[0] for r in inv_cur.fetchall()]
+        if len(parts) < 2:
+            raise HTTPException(status_code=400, detail="Need at least 2 parts in database")
+        created = []
+        for _ in range(count):
+            order_cur.execute("SELECT COALESCE(MAX(CAST(SUBSTRING(order_id, 2) AS UNSIGNED)), 0) + 1 FROM orders")
+            order_id = 'P' + str(order_cur.fetchone()[0]).zfill(9)
+            customer_id = random.choice(customers)
+            ship_type = random.choice(SHIP_TYPES)
+            p1, p2 = random.sample(parts, 2)
+            due_date = (date.today() + timedelta(days=random.randint(30, 180))).isoformat()
+            inv_cur.execute("SELECT COALESCE(MAX(CAST(SUBSTRING(ship_id, 6) AS UNSIGNED)), 0) + 1 FROM ships")
+            next_ship_num = inv_cur.fetchone()[0]
+            ship_id = 'SHIP-' + str(next_ship_num).zfill(3)
+            ship_name = f"{ship_type} {str(next_ship_num).zfill(3)}"
+            inv_cur.execute(
+                "INSERT INTO ships (ship_id, ship_name, ship_type, status, start_date, target_date) VALUES (%s, %s, %s, 'PLANNING', %s, %s)",
+                (ship_id, ship_name, ship_type, date.today(), due_date)
+            )
+            inv_conn.commit()
+            order_cur.execute(
+                "INSERT INTO orders (order_id, customer_id, status, due_date, ship_type, ship_id) VALUES (%s, %s, 'PENDING', %s, %s, %s)",
+                (order_id, customer_id, due_date, ship_type, ship_id)
+            )
+            order_cur.execute(
+                "INSERT INTO order_items (order_id, part1_id, part2_id) VALUES (%s, %s, %s)",
+                (order_id, p1, p2)
+            )
+            order_conn.commit()
+            created.append(order_id)
+        return {"message": f"Generated {len(created)} order(s)", "order_ids": created}
+    except HTTPException:
+        raise
+    except Exception as e:
+        order_conn.rollback()
+        inv_conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        order_conn.close()
+        inv_conn.close()
 
 @app.post("/api/orders")
 def create_order(data: dict):
@@ -491,7 +662,7 @@ def create_order(data: dict):
             ship_id = 'SHIP-' + str(next_ship_num).zfill(3)
             ship_name = f"{ship_type} {str(next_ship_num).zfill(3)}"
             inv_cur.execute(
-                "INSERT INTO ships (ship_id, ship_name, ship_type, status, start_date, target_date) VALUES (%s, %s, %s, 'BUILDING', %s, %s)",
+                "INSERT INTO ships (ship_id, ship_name, ship_type, status, start_date, target_date) VALUES (%s, %s, %s, 'PLANNING', %s, %s)",
                 (ship_id, ship_name, ship_type, date.today(), data.get('due_date') or None)
             )
             inv_conn.commit()

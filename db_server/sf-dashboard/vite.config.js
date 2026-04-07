@@ -31,7 +31,7 @@ export default defineConfig({
       '/dataset-images': { target: 'http://localhost:8000', configure: silenceECONNREFUSED },
       '/ws':             { target: 'ws://localhost:8000',   ws: true, configure: silenceECONNREFUSED },
       '/cam': {
-        target: 'http://localhost:5000',
+        target: `http://${process.env.CAM_HOST || 'localhost'}:5000`,
         rewrite: (path) => path.replace(/^\/cam/, ''),
         configure: silenceECONNREFUSED,
       },

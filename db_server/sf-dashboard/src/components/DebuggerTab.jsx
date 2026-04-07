@@ -1,14 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
 
-const CAM_BASE = '/cam'
 const API_BASE = ''
+
+function buildCamBase(ip) {
+  if (!ip || ip.trim() === '') return '/cam'
+  return `http://${ip.trim()}:5000`
+}
 const CLASSES = ['pass', 'fail', 'null']
 const CLASS_COLORS = { pass: '#4ade80', fail: '#f87171', null: '#94a3b8' }
 
-function DebugFeed({ active }) {
+function DebugFeed({ active, camBase }) {
   return (
     <img
-      src={active ? `${CAM_BASE}/video_feed` : undefined}
+      src={active ? `${camBase}/video_feed` : undefined}
       alt="Live camera feed"
       className="debug-cam-img"
       style={{ opacity: active ? 1 : 0.15 }}
@@ -16,11 +20,11 @@ function DebugFeed({ active }) {
   )
 }
 
-function LiveTab({ cameraActive, debugModels, debugSelectedModel, setDebugSelectedModel, debugScores, setDebugScores, debugStatus, snapClass, setSnapClass, saveSnapshot, snapStatus, saving, refreshModels }) {
+function LiveTab({ cameraActive, camBase, debugModels, debugSelectedModel, setDebugSelectedModel, debugScores, setDebugScores, debugStatus, snapClass, setSnapClass, saveSnapshot, snapStatus, saving, refreshModels }) {
   return (
     <div className="debugger-panel">
       <div className="debugger-feed-wrap">
-        <DebugFeed active={cameraActive} />
+        <DebugFeed active={cameraActive} camBase={camBase} />
         <div className="debugger-snap-bar">
           <select className="flag-select" value={snapClass} onChange={e => setSnapClass(e.target.value)}>
             {CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
@@ -401,6 +405,11 @@ function DatasetTab({ refreshKey }) {
 export default function DebuggerTab() {
   const [innerTab, setInnerTab] = useState('live')
 
+  const [camIp, setCamIp] = useState(() => localStorage.getItem('camIp') || '')
+  const [camIpInput, setCamIpInput] = useState(() => localStorage.getItem('camIp') || '')
+  const [camBase, setCamBase] = useState(() => buildCamBase(localStorage.getItem('camIp') || ''))
+  const [testStatus, setTestStatus] = useState(null)
+
   const [debugModels, setDebugModels] = useState([])
   const [debugSelectedModel, setDebugSelectedModel] = useState('')
   const [debugScores, setDebugScores] = useState([])
@@ -413,9 +422,37 @@ export default function DebuggerTab() {
   const smoothedScores = useRef({})
   const EMA_ALPHA = 0.25
 
+  const applyIp = (ip) => {
+    const trimmed = ip.trim()
+    localStorage.setItem('camIp', trimmed)
+    setCamIp(trimmed)
+    setCamBase(buildCamBase(trimmed))
+    setDebugScores([])
+    smoothedScores.current = {}
+    setDebugStatus('Waiting...')
+    setDebugModels([])
+    setTestStatus(null)
+  }
+
+  const testConnection = async () => {
+    setTestStatus({ type: 'info', message: 'Testing...' })
+    const base = buildCamBase(camIpInput)
+    try {
+      const res = await fetch(`${base}/api/camera/status`)
+      if (res.ok) {
+        const json = await res.json()
+        setTestStatus({ type: 'success', message: `Connected · camera ${json.active ? 'active' : 'inactive'}` })
+      } else {
+        setTestStatus({ type: 'error', message: `HTTP ${res.status}` })
+      }
+    } catch {
+      setTestStatus({ type: 'error', message: 'Unreachable' })
+    }
+  }
+
   const refreshModels = async () => {
     try {
-      const res = await fetch(`${CAM_BASE}/api/models`)
+      const res = await fetch(`${camBase}/api/models`)
       if (res.ok) {
         const models = await res.json()
         setDebugModels(models)
@@ -433,8 +470,8 @@ export default function DebuggerTab() {
     const init = async () => {
       try {
         const [modelsRes, statusRes] = await Promise.all([
-          fetch(`${CAM_BASE}/api/models`),
-          fetch(`${CAM_BASE}/api/camera/status`),
+          fetch(`${camBase}/api/models`),
+          fetch(`${camBase}/api/camera/status`),
         ])
         if (modelsRes.ok) {
           const models = await modelsRes.json()
@@ -451,11 +488,11 @@ export default function DebuggerTab() {
       }
     }
     init()
-  }, [])
+  }, [camBase])
 
   const toggleCamera = async () => {
     try {
-      const res = await fetch(`${CAM_BASE}/api/camera/toggle`, { method: 'POST' })
+      const res = await fetch(`${camBase}/api/camera/toggle`, { method: 'POST' })
       const json = await res.json()
       setCameraActive(json.active)
       setDebugScores([])
@@ -471,7 +508,7 @@ export default function DebuggerTab() {
     const id = setInterval(async () => {
       if (!debugSelectedModel || !cameraActive || innerTab !== 'live') return
       try {
-        const res = await fetch(`${CAM_BASE}/api/classify?model=${encodeURIComponent(debugSelectedModel)}`)
+        const res = await fetch(`${camBase}/api/classify?model=${encodeURIComponent(debugSelectedModel)}`)
         const data = await res.json()
         if (data.scores) {
           const prev = smoothedScores.current
@@ -492,7 +529,7 @@ export default function DebuggerTab() {
       }
     }, 150)
     return () => clearInterval(id)
-  }, [debugSelectedModel, innerTab])
+  }, [debugSelectedModel, innerTab, camBase])
 
   const saveSnapshot = async () => {
     setSnapStatus(null)
@@ -516,6 +553,7 @@ export default function DebuggerTab() {
       <div className="debugger-inner-tabs">
         <button className={`debugger-inner-tab${innerTab === 'live' ? ' active' : ''}`} onClick={() => setInnerTab('live')}>Live Feed</button>
         <button className={`debugger-inner-tab${innerTab === 'dataset' ? ' active' : ''}`} onClick={() => setInnerTab('dataset')}>Dataset</button>
+        <button className={`debugger-inner-tab${innerTab === 'settings' ? ' active' : ''}`} onClick={() => setInnerTab('settings')}>Settings</button>
         <div className="debugger-tab-actions">
           <button
             className={`debug-menu-btn${cameraActive ? '' : ' active'}`}
@@ -530,6 +568,7 @@ export default function DebuggerTab() {
         {innerTab === 'live' && (
           <LiveTab
             cameraActive={cameraActive}
+            camBase={camBase}
             snapClass={snapClass}
             setSnapClass={setSnapClass}
             saveSnapshot={saveSnapshot}
@@ -545,6 +584,59 @@ export default function DebuggerTab() {
           />
         )}
         {innerTab === 'dataset' && <DatasetTab refreshKey={datasetRefreshKey} />}
+        {innerTab === 'settings' && (
+          <div className="debugger-settings">
+            <div className="debugger-settings-group">
+              <h3 className="debugger-settings-title">Camera Server</h3>
+              <p className="debugger-settings-desc">
+                Leave blank to use the local proxy. Enter an IP to connect directly to a remote camera server.
+              </p>
+              <div className="debugger-settings-row">
+                <label className="debugger-label">IP Address</label>
+                <div className="debugger-settings-input-wrap">
+                  <span className="debugger-settings-prefix">http://</span>
+                  <input
+                    className="debugger-select"
+                    style={{ flex: 1, fontFamily: 'monospace' }}
+                    placeholder="e.g. 192.168.3.115"
+                    value={camIpInput}
+                    onChange={e => setCamIpInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && applyIp(camIpInput)}
+                  />
+                  <span className="debugger-settings-suffix">:5000</span>
+                </div>
+              </div>
+              <div className="debugger-settings-actions">
+                <button className="btn-register" onClick={testConnection}>Test</button>
+                <button
+                  className="btn-register"
+                  style={{ background: '#1e1b4b', borderColor: '#4f46e5', color: '#a5b4fc' }}
+                  onClick={() => applyIp(camIpInput)}
+                >
+                  Apply
+                </button>
+                {camIp && (
+                  <button className="btn-cancel" onClick={() => { setCamIpInput(''); applyIp('') }}>
+                    Clear (use proxy)
+                  </button>
+                )}
+              </div>
+              {testStatus && (
+                <p className={`status-msg ${testStatus.type}`} style={{ marginTop: 8 }}>{testStatus.message}</p>
+              )}
+              {camIp && (
+                <p className="debugger-settings-desc" style={{ marginTop: 8 }}>
+                  Active: <span style={{ color: '#a5b4fc', fontFamily: 'monospace' }}>http://{camIp}:5000</span>
+                </p>
+              )}
+              {!camIp && (
+                <p className="debugger-settings-desc" style={{ marginTop: 8 }}>
+                  Active: <span style={{ color: '#64748b', fontFamily: 'monospace' }}>/cam (local proxy)</span>
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
