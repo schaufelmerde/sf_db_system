@@ -1,0 +1,7 @@
+flask
+opencv-python
+numpy
+pymcprotocol
+ai_edge_litert
+tensorflow
+mysql-connector-python==9.6.0

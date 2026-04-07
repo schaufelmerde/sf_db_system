@@ -1,0 +1,22 @@
+# Python Virtual Environment
+dbvenv/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# IDE / Tooling
+.claude/
+.vscode/
+.idea/
+
+# Large Assets / Local Data
+snapshots/
+schema_overview.xlsx
+
+# Node modules (if sf-dashboard is a React/Node project)
+sf-dashboard/node_modules/
+
+# OS specific files
+.DS_Store
+Thumbs.db

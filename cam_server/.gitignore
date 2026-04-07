@@ -1,0 +1,22 @@
+# Virtual environment
+venv/
+
+# Logs
+*.log
+
+# Claude Code settings
+.claude/
+
+# Compiled Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Trained models (large binary files — add to repo manually if needed)
+models/
+
+# Snapshot output directory (runtime-generated)
+snapshots/
+
+# Training dataset (large images — distribute separately)
+image_dataset/

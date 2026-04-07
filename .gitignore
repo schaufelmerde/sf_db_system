@@ -1,0 +1,41 @@
+# Python virtual environments
+venv/
+dbvenv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Node
+node_modules/
+
+# ML models (large binaries — use Git LFS or keep local)
+cam_server/models/tflite_*/
+cam_server/models/archive/
+cam_server/models/*.zip
+cam_server/models/*.keras
+cam_server/models/tm_backbone/
+cam_server/models/tm_backbone_tfjs/
+
+# Runtime-generated images
+cam_server/snapshots/
+db_server/snapshots/
+
+# Training data
+cam_server/image_dataset/
+
+# Logs
+*.log
+
+# Binary/generated files
+db_server/schema_overview.xlsx
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# VS Code
+.vscode/

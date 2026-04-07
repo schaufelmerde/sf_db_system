@@ -1,0 +1,265 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ko">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=8" />
+<title>&#44256;&#44061; &#51452;&#47928; &#51221;&#48372;</title>
+<style type="text/css">
+* { margin: 0; padding: 0; }
+body {
+  width: 1024px;
+  height: 668px;
+  overflow: hidden;
+  background: #0a0e17;
+  color: #c8d4e0;
+  font-family: "Malgun Gothic", "Segoe UI", Arial, sans-serif;
+  font-size: 13px;
+}
+
+/* ---- Header ---- */
+#header {
+  width: 1024px;
+  height: 60px;
+  border-bottom: 1px solid #1e293b;
+  background: #080b10;
+}
+#header table {
+  width: 1024px;
+  height: 60px;
+  border-collapse: collapse;
+}
+#header td { padding: 0 24px; vertical-align: middle; }
+#header td.right { text-align: right; white-space: nowrap; }
+#title {
+  font-size: 19px;
+  font-weight: bold;
+  color: #a5b4fc;
+  letter-spacing: 1px;
+}
+#clock {
+  font-size: 22px;
+  color: #4a6080;
+  letter-spacing: 2px;
+}
+#dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #1e293b;
+  margin-right: 10px;
+  vertical-align: middle;
+}
+#dot.on { background: #4ade80; }
+
+/* ---- Scroll area ---- */
+#content {
+  width: 1024px;
+  height: 608px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ---- Data table ---- */
+#data-table {
+  width: 1004px;
+  border-collapse: collapse;
+  margin: 0 10px;
+  table-layout: fixed;
+}
+#data-table th {
+  padding: 12px 10px 8px 10px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #475569;
+  border-bottom: 1px solid #1e293b;
+  background: #0a0e17;
+}
+#data-table td {
+  padding: 12px 10px;
+  font-size: 13px;
+  color: #c0cdd8;
+  border-bottom: 1px solid #0f1520;
+  white-space: nowrap;
+  overflow: hidden;
+}
+#data-table tr:hover td { background: #0d1117; }
+
+/* column widths */
+.col-cust  { width: 130px; }
+.col-ship  { width: 150px; }
+.col-part1 { width: 155px; }
+.col-part2 { width: 155px; }
+.col-stat  { width: 140px; }
+.col-pri   { width: 90px; }
+.col-due   { width: 130px; }
+
+.id-cell { color: #8899aa; }
+
+/* Status badges */
+.badge {
+  display: inline;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.s-pending     { background: #1e3a5f; color: #60a5fa; }
+.s-queued      { background: #2d2a5f; color: #a78bfa; }
+.s-in_progress { background: #1a3a2a; color: #34d399; }
+.s-complete    { background: #1a3a20; color: #4ade80; }
+.s-cancelled   { background: #3a1a1a; color: #f87171; }
+.s-on_hold     { background: #3a2e1a; color: #fbbf24; }
+
+/* Priority dots */
+.pip {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #1e293b;
+  margin-right: 3px;
+  vertical-align: middle;
+}
+.pip-on { background: #818cf8; }
+
+.empty-row td {
+  text-align: center;
+  padding: 60px;
+  color: #334155;
+  font-size: 13px;
+}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <table><tr>
+    <td class="left"><span id="title">&#44256;&#44061; &#51452;&#47928; &#51221;&#48372;</span></td>
+    <td class="right"><span id="dot"></span><span id="clock"></span></td>
+  </tr></table>
+</div>
+
+<div id="content">
+  <table id="data-table">
+    <thead>
+      <tr>
+        <th class="col-cust">&#44256;&#44061; ID</th>
+        <th class="col-ship">&#49440;&#48149; &#50976;&#54805;</th>
+        <th class="col-part1">&#48512;&#54408; 1</th>
+        <th class="col-part2">&#48512;&#54408; 2</th>
+        <th class="col-stat">&#49345;&#53468;</th>
+        <th class="col-pri">&#50864;&#49440;&#49692;&#50948;</th>
+        <th class="col-due">&#47560;&#44048;&#51068;</th>
+      </tr>
+    </thead>
+    <tbody id="tbody">
+      <tr class="empty-row"><td colspan="7">&#47196;&#46377; &#51473;...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script type="text/javascript">
+// ---- Clock ----
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+function tick() {
+  var d = new Date();
+  document.getElementById('clock').innerHTML =
+    pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+tick();
+setInterval(tick, 1000);
+
+// ---- XHR (IE-compatible) ----
+function createXHR() {
+  if (window.XMLHttpRequest) { return new XMLHttpRequest(); }
+  return new ActiveXObject('Microsoft.XMLHTTP');
+}
+
+function esc(s) {
+  if (s === null || s === undefined) return '\u2014';
+  return ('' + s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function badge(status) {
+  if (!status) return '<span class="id-cell">\u2014</span>';
+  var cls = 's-' + status.toLowerCase().replace(' ', '_');
+  return '<span class="badge ' + cls + '">' + esc(status) + '</span>';
+}
+
+function pips(val) {
+  if (val === null || val === undefined) return '<span class="id-cell">\u2014</span>';
+  var n = parseInt(val, 10);
+  var html = '';
+  for (var i = 1; i <= 5; i++) {
+    html += '<span class="pip' + (i <= n ? ' pip-on' : '') + '"></span>';
+  }
+  return html;
+}
+
+function flashDot() {
+  var dot = document.getElementById('dot');
+  dot.className = 'on';
+  setTimeout(function() { dot.className = ''; }, 400);
+}
+
+function load() {
+  flashDot();
+  var xhr = createXHR();
+  xhr.open('GET', '/api/orders', true);
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState !== 4) return;
+    var tbody = document.getElementById('tbody');
+    if (xhr.status !== 200) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">\ub370\uc774\ud130 \ub85c\ub4dc \uc2e4\ud328 (' + xhr.status + ')</td></tr>';
+      return;
+    }
+    var orders;
+    try { orders = JSON.parse(xhr.responseText); }
+    catch(e) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">JSON \uc624\ub958</td></tr>';
+      return;
+    }
+
+    var active = [];
+    for (var i = 0; i < orders.length; i++) {
+      var s = orders[i].status;
+      if (s !== 'COMPLETE' && s !== 'CANCELLED') active.push(orders[i]);
+    }
+
+    if (active.length === 0) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="7">\uc8fc\ubb38 \uc5c6\uc74c</td></tr>';
+      return;
+    }
+
+    var rows = '';
+    for (var j = 0; j < active.length; j++) {
+      var o = active[j];
+      var due = o.due_date ? esc(o.due_date.split('T')[0]) : '\u2014';
+      rows +=
+        '<tr>' +
+        '<td><span class="id-cell">' + esc(o.customer_id) + '</span></td>' +
+        '<td>' + esc(o.ship_type) + '</td>' +
+        '<td>' + esc(o.part1_id) + '</td>' +
+        '<td>' + esc(o.part2_id) + '</td>' +
+        '<td>' + badge(o.status) + '</td>' +
+        '<td>' + pips(o.priority) + '</td>' +
+        '<td>' + due + '</td>' +
+        '</tr>';
+    }
+    tbody.innerHTML = rows;
+  };
+  xhr.send();
+}
+
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>
